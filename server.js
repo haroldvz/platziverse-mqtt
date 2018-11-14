@@ -47,8 +47,33 @@ server.on('clientConnected', client => {//when the mqtt client is connected
     clients.set(client.id, null)
 })
 
-server.on('clientDisconnected', client => {
+server.on('clientDisconnected',async client => {
     debug(`Client Disconnected: ${client.id}`)
+    const agent = clients.get(client.id)
+
+    if(agent){
+        //Mark agent as disconnected
+        agent.connected = false
+        
+        try {
+            await Agent.createOrUpdate(agent)
+        } catch (error) {
+            handleError(error)
+        }
+
+        clients.delete(client.id)
+
+        server.publish({
+            type:'agent/disconnected',
+            payload: JSON.stringify({
+                agent:{
+                    uuid:agent.uuid
+                }
+            })
+        })
+
+        debug(`Client with ${client.id} id associated to Agent ${agent.uuid} marked as disconnected`)
+    }
 })
 
 server.on('published',async (packet, client) => {
@@ -58,6 +83,7 @@ server.on('published',async (packet, client) => {
         case 'agent/connected':
             break;
         case 'agent/disconnected':
+        console.log('Disconnected')
             break;
         case 'agent/message':
             debug(`Payload ${packet.payload}`)
@@ -87,6 +113,20 @@ server.on('published',async (packet, client) => {
                             connected: agent.connected
                         }})
                     })
+                }
+
+                //Store metrics
+
+                for (let metric of payload.metrics){// for of soporta async await
+                    let m
+
+                    try {
+                        m = await Metric.create(agent.uuid, metric)
+                    } catch (error) {
+                        return handleError(error)
+                    }
+
+                    debug(`Metric ${m.id} saved on agent ${agent.uuid}`)
                 }
             }
             break;
